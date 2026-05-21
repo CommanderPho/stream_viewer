@@ -20,6 +20,9 @@
 		},
 		{
 			"path": "../phopyqthelper"
+		},
+		{
+			"path": "../pyPhoTimeline"
 		}
 	],
 	"settings": {
