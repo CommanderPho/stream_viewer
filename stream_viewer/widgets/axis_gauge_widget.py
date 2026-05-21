@@ -30,6 +30,16 @@ class AxisGaugeWidget(QtWidgets.QWidget):
         self.update()
 
 
+    @staticmethod
+    def _shortest_angle_delta_deg(target_deg: float, reference_deg: float) -> float:
+        return (target_deg - reference_deg + 180.0) % 360.0 - 180.0
+
+
+    def set_angle_degrees_unwrapped(self, angle_degrees: float) -> None:
+        self._angle_degrees += self._shortest_angle_delta_deg(float(angle_degrees), self._angle_degrees)
+        self.update()
+
+
     def paintEvent(self, event: QtGui.QPaintEvent) -> None:
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.Antialiasing, True)

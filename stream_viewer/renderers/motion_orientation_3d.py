@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterator, List, Optional, Tuple
 
 import numpy as np
 from qtpy import QtWidgets
@@ -18,6 +18,8 @@ from stream_viewer.widgets.axis_gauge_widget import AxisGaugeWidget
 logger = logging.getLogger(__name__)
 
 MOTION_CHANNEL_NAMES = ('AccX', 'AccY', 'AccZ', 'GyroX', 'GyroY', 'GyroZ')
+_TS_EPSILON = 1e-9
+_MAX_FUSION_DT = 0.5
 
 try:
     import pyvista as pv
@@ -211,22 +213,56 @@ class MotionOrientation3D(RendererBufferData, PyVistaRenderer):
                 pass
         else:
             self._plotter.add_text("Head mesh not available", font_size=12, color='black')
+        for gauge in (self._gauge_yaw, self._gauge_roll, self._gauge_pitch):
+            if gauge is not None:
+                gauge.set_angle_degrees(0.0)
         self._plotter.render()
 
 
-    def _latest_motion_sample(self, collect_data: List, collect_timestamps: List) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[float]]:
+    def _motion_srate(self) -> float:
+        if self._motion_src_ix is None:
+            return 16.0
+        srate = float(self._data_sources[self._motion_src_ix].data_stats.get('srate', 16.0) or 16.0)
+        return srate if srate > 0 else 16.0
+
+
+    def _clamp_fusion_dt(self, dt: float, srate: float) -> float:
+        return float(np.clip(dt, 1.0 / srate, _MAX_FUSION_DT))
+
+
+    def _iter_new_motion_samples(self, collect_data: List, collect_timestamps: List) -> Iterator[Tuple[np.ndarray, float, float]]:
         if self._motion_src_ix is None or self._motion_src_ix >= len(collect_data):
-            return None, None, None
+            return
         data_tuple, ts_tuple = collect_data[self._motion_src_ix], collect_timestamps[self._motion_src_ix]
         if data_tuple is None or len(data_tuple) < 1:
-            return None, None, None
+            return
         data = data_tuple[0]
         timestamps = ts_tuple[0] if ts_tuple is not None and len(ts_tuple) > 0 else np.array([])
-        if data is None or data.size == 0 or data.shape[1] == 0:
-            return None, None, None
-        sample = data[:, -1]
-        ts_last = float(timestamps[-1]) if timestamps is not None and len(timestamps) > 0 else None
-        return sample, timestamps, ts_last
+        if data is None or data.size == 0 or data.shape[1] == 0 or timestamps is None or len(timestamps) == 0:
+            return
+        srate = self._motion_srate()
+        min_dt = 1.0 / srate
+        last_ts = self._last_ts
+        if last_ts is None:
+            new_ix = np.flatnonzero(np.isfinite(timestamps))
+        else:
+            new_ix = np.flatnonzero(np.asarray(timestamps, dtype=float) > (last_ts + _TS_EPSILON))
+        if new_ix.size == 0:
+            return
+        order = np.argsort(timestamps[new_ix])
+        new_ix = new_ix[order]
+        prev_ts = last_ts
+        for col_ix in new_ix:
+            sample = data[:, col_ix]
+            ts = float(timestamps[col_ix])
+            if not np.all(np.isfinite(sample)) or not np.isfinite(ts):
+                continue
+            if prev_ts is None:
+                dt = min_dt
+            else:
+                dt = self._clamp_fusion_dt(ts - prev_ts, srate)
+            prev_ts = ts
+            yield sample, dt, ts
 
 
     def _sample_to_acc_gyro(self, sample: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -240,31 +276,22 @@ class MotionOrientation3D(RendererBufferData, PyVistaRenderer):
             return
         if not isinstance(collect_data, list):
             collect_data, collect_timestamps = [collect_data], [collect_timestamps]
-        sample, _, ts_last = self._latest_motion_sample(collect_data, collect_timestamps)
-        if sample is None or ts_last is None:
+        new_samples = list(self._iter_new_motion_samples(collect_data, collect_timestamps))
+        if not new_samples:
             return
-        if not np.all(np.isfinite(sample)):
-            return
-        acc_g, gyro_deg_s = self._sample_to_acc_gyro(sample)
-        src = self._data_sources[self._motion_src_ix]
-        srate = float(src.data_stats.get('srate', 16.0) or 16.0)
-        if srate <= 0:
-            srate = 16.0
-        if self._last_ts is None:
-            dt = 1.0 / srate
-        else:
-            dt = max(float(ts_last - self._last_ts), 1.0 / srate)
-        self._last_ts = ts_last
-        self._q = MotionData.update_quaternion(self._q, gyro_deg_s=gyro_deg_s, acc_g=acc_g, dt=dt, beta=self._madgwick_beta)
+        for sample, dt, ts in new_samples:
+            acc_g, gyro_deg_s = self._sample_to_acc_gyro(sample)
+            self._q = MotionData.update_quaternion(self._q, gyro_deg_s=gyro_deg_s, acc_g=acc_g, dt=dt, beta=self._madgwick_beta)
+            self._last_ts = ts
         rot_matrix = MotionData.quaternion_to_rot_matrix(self._q)
         self._apply_mesh_orientation(rot_matrix)
         yaw, pitch, roll = MotionData.quaternion_to_euler_deg(self._q, sequence=self._euler_sequence)
         if self._gauge_yaw is not None:
-            self._gauge_yaw.set_angle_degrees(yaw)
+            self._gauge_yaw.set_angle_degrees_unwrapped(yaw)
         if self._gauge_roll is not None:
-            self._gauge_roll.set_angle_degrees(roll)
+            self._gauge_roll.set_angle_degrees_unwrapped(roll)
         if self._gauge_pitch is not None:
-            self._gauge_pitch.set_angle_degrees(pitch)
+            self._gauge_pitch.set_angle_degrees_unwrapped(pitch)
 
 
     @property
