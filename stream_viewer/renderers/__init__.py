@@ -8,6 +8,7 @@ from stream_viewer.renderers.resolver import load_renderer, list_renderers, get_
 from stream_viewer.renderers.topo_vb import TopoVB
 from stream_viewer.renderers.heatmap_pg import HeatmapPG
 from stream_viewer.renderers.sonify_audio import SonifyAudio
+from stream_viewer.renderers.motion_orientation_3d import MotionOrientation3D
 
 # # Try to import HeatmapGPU (requires torch for GPU acceleration, falls back to CPU)
 # try:
