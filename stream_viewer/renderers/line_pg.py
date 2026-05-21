@@ -80,7 +80,6 @@ class LinePG(RendererDataTimeSeries, PGRenderer):
         self._value_trace_proxy = None
         self._trace_vlines = {}
         self._trace_channel_meta = {}
-        self._trace_units = {}
         self._plot_rows = {}
         self._trace_last_key = None
         self._do_yaxis_sync = False
@@ -105,7 +104,7 @@ class LinePG(RendererDataTimeSeries, PGRenderer):
         self._src_last_marker_time = [-np.inf for _ in range(len(self._data_sources))]
         self._plot_rows = {}
         self._trace_channel_meta = {}
-        self._trace_units = {}
+        self._plot_rows = {}
 
         if len(self.chan_states) == 0:
             return
@@ -144,8 +143,6 @@ class LinePG(RendererDataTimeSeries, PGRenderer):
             pw = self._widget.addPlot(row=row_offset, col=0, antialias=self._antialias)
             last_row = row_offset
             self._plot_rows[src_ix] = row_offset
-            shared_unit = ch_states['unit'].iloc[0] if 'unit' in ch_states and ch_states['unit'].nunique() == 1 else None
-            self._trace_units[src_ix] = shared_unit
             self._trace_channel_meta[src_ix] = []
 
             if self.show_chan_labels and not offset_chans:
@@ -308,15 +305,13 @@ class LinePG(RendererDataTimeSeries, PGRenderer):
         return buf._data[:, idx]
 
     def _format_value_trace_html(self, src_ix, hover_x, values):
-        unit_suffix = self._trace_units.get(src_ix)
-        unit_str = (' ' + unit_suffix) if unit_suffix else ''
         parts = [f"<span style='color:#CCC'>t={hover_x:.3f} s</span>"]
         channel_meta = self._trace_channel_meta.get(src_ix, [])
         for ch_ix, (name, color_hex) in enumerate(channel_meta):
             if ch_ix >= values.size:
                 break
             val = values[ch_ix]
-            val_str = '—' if not np.isfinite(val) else f'{val:g}{unit_str}'
+            val_str = '—' if not np.isfinite(val) else f'{val:g}'
             parts.append(f"<span style='color:{color_hex}'>{name}: {val_str}</span>")
         return '&nbsp;&nbsp;'.join(parts)
 
