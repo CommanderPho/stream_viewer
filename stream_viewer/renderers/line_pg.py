@@ -3,7 +3,7 @@
 from collections import deque, namedtuple
 import json
 import numpy as np
-from qtpy import QtGui
+from qtpy import QtCore, QtGui, QtWidgets
 import pyqtgraph as pg
 from stream_viewer.renderers.data.base import RendererDataTimeSeries
 from stream_viewer.renderers.display.pyqtgraph import PGRenderer
@@ -18,7 +18,7 @@ class LinePG(RendererDataTimeSeries, PGRenderer):
     gui_kwargs = dict(RendererDataTimeSeries.gui_kwargs, **PGRenderer.gui_kwargs,
                       offset_channels=bool, reset_colormap=bool,
                       line_width=float, antialias=bool, ylabel_as_title=bool,
-                      ylabel_width=int)
+                      ylabel_width=int, show_value_trace=bool)
 
     def __init__(self,
                  # Override inherited
@@ -33,6 +33,7 @@ class LinePG(RendererDataTimeSeries, PGRenderer):
                  ylabel_as_title: bool = False,
                  ylabel_width: int = None,
                  ylabel: str = None,
+                 show_value_trace: bool = True,
                  **kwargs):
         """
         Multi-channel timeseries visualization using pyqtgraph widgets. Channels originating from the same data source
@@ -51,6 +52,7 @@ class LinePG(RendererDataTimeSeries, PGRenderer):
                 with the required y-width not being calculated until after all the labels and ticks have been
                 created.
             ylabel: The ylabel for the plot. If unspecified, the name of the LSL stream is automatically used.
+            show_value_trace: Set True to show hovered channel values in a row along the bottom edge.
             **kwargs:
         """
         self._offset_channels = offset_channels
@@ -60,21 +62,50 @@ class LinePG(RendererDataTimeSeries, PGRenderer):
         self._ylabel_as_title = ylabel_as_title
         self._ylabel_width = ylabel_width
         self._ylabel = ylabel
+        self._show_value_trace = show_value_trace
         self._requested_auto_scale = auto_scale.lower()  # Actual auto-scale is different depending on n streams.
         self._widget = pg.GraphicsLayoutWidget()
+        self._container = QtWidgets.QWidget()
+        self._container_layout = QtWidgets.QVBoxLayout(self._container)
+        self._container_layout.setContentsMargins(0, 0, 0, 0)
+        self._container_layout.setSpacing(0)
+        self._container_layout.addWidget(self._widget, stretch=1)
+        self._trace_label = QtWidgets.QLabel('')
+        self._trace_label.setTextFormat(QtCore.Qt.RichText)
+        self._trace_label.setWordWrap(False)
+        self._trace_label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
+        self._trace_label.setVisible(False)
+        self._trace_label.setStyleSheet('QLabel { background-color: rgba(20, 22, 28, 200); color: #EEE; padding: 2px 6px; }')
+        self._container_layout.addWidget(self._trace_label)
+        self._value_trace_proxy = None
+        self._trace_vlines = {}
+        self._trace_channel_meta = {}
+        self._trace_units = {}
+        self._plot_rows = {}
+        self._trace_last_key = None
         self._do_yaxis_sync = False
         self._src_last_marker_time = []
         self.marker_texts_pool = deque()
         self._marker_info = deque()
         self._t_expired = -np.inf  # Anything items (e.g. marker strings) older than this can be removed safely.
         super().__init__(show_chan_labels=show_chan_labels, color_set=color_set, **kwargs)
+        self._apply_trace_label_font()
         self.reset_renderer()
+
+
+    @property
+    def native_widget(self):
+        return self._container
 
     def reset_renderer(self, reset_channel_labels=True):
         # Clear existing elements
+        self._teardown_value_trace_overlay()
         self._widget.clear()
         self._widget.setBackground(self.parse_color_str(self.bg_color))
         self._src_last_marker_time = [-np.inf for _ in range(len(self._data_sources))]
+        self._plot_rows = {}
+        self._trace_channel_meta = {}
+        self._trace_units = {}
 
         if len(self.chan_states) == 0:
             return
@@ -112,6 +143,10 @@ class LinePG(RendererDataTimeSeries, PGRenderer):
             row_offset += 1
             pw = self._widget.addPlot(row=row_offset, col=0, antialias=self._antialias)
             last_row = row_offset
+            self._plot_rows[src_ix] = row_offset
+            shared_unit = ch_states['unit'].iloc[0] if 'unit' in ch_states and ch_states['unit'].nunique() == 1 else None
+            self._trace_units[src_ix] = shared_unit
+            self._trace_channel_meta[src_ix] = []
 
             if self.show_chan_labels and not offset_chans:
                 legend_bg = QtGui.QColor(self.bg_color)
@@ -176,6 +211,7 @@ class LinePG(RendererDataTimeSeries, PGRenderer):
                     curve = pg.PlotCurveItem(t_vec, buff._data[0], connect='finite', pen=pen, name=ch_state['name'])
                     curve.setPos(0, ch_offset_row if offset_chans else 0)
                     pw.addItem(curve)
+                    self._trace_channel_meta[src_ix].append((ch_state['name'], pg.mkColor(color_map[ch_offset_color]).name()))
                     # pdi = pg.PlotDataItem(t_vec, buff._data[0],
                     #                       antialias=self.antialias,
                     #                       pen=pen, name=ch_state['name'])
@@ -197,6 +233,116 @@ class LinePG(RendererDataTimeSeries, PGRenderer):
         # self._widget.setContentsMargins(0., 0., 0., 0.)
 
         self._do_yaxis_sync = True
+        self._apply_trace_label_font()
+        self._setup_value_trace_overlay()
+
+    def _apply_trace_label_font(self):
+        font = QtGui.QFont("Arial", int(self.font_size - 1))
+        self._trace_label.setFont(font)
+
+    def _teardown_value_trace_overlay(self):
+        if self._value_trace_proxy is not None:
+            try:
+                self._value_trace_proxy.disconnect()
+            except (TypeError, RuntimeError):
+                pass
+            self._value_trace_proxy = None
+        scene = self._widget.scene()
+        if scene is not None and hasattr(scene, 'sigMouseExited'):
+            try:
+                scene.sigMouseExited.disconnect(self._on_value_trace_mouse_exited)
+            except (TypeError, RuntimeError):
+                pass
+        self._trace_vlines = {}
+        self._trace_last_key = None
+        self._trace_label.hide()
+        self._trace_label.clear()
+
+    def _setup_value_trace_overlay(self):
+        if not self.show_value_trace or not self._plot_rows:
+            return
+        trace_pen = pg.mkPen('#888888', width=1, style=QtCore.Qt.DashLine)
+        for src_ix, row_ix in self._plot_rows.items():
+            pw = self._widget.getItem(row_ix, 0)
+            if pw is None:
+                continue
+            vline = pg.InfiniteLine(angle=90, movable=False, pen=trace_pen)
+            vline.setZValue(1000)
+            pw.addItem(vline, ignoreBounds=True)
+            vline.setVisible(False)
+            self._trace_vlines[src_ix] = vline
+        scene = self._widget.scene()
+        if scene is not None:
+            self._value_trace_proxy = pg.SignalProxy(scene.sigMouseMoved, rateLimit=60, slot=lambda evt: self._on_value_trace_mouse_moved(evt[0]))
+            if hasattr(scene, 'sigMouseExited'):
+                scene.sigMouseExited.connect(self._on_value_trace_mouse_exited)
+
+    def _hide_value_trace(self):
+        self._trace_last_key = None
+        self._trace_label.hide()
+        for vline in self._trace_vlines.values():
+            vline.setVisible(False)
+
+    def _on_value_trace_mouse_exited(self):
+        self._hide_value_trace()
+
+    def _plot_under_cursor(self, pos):
+        for src_ix, row_ix in self._plot_rows.items():
+            pw = self._widget.getItem(row_ix, 0)
+            if pw is not None and pw.sceneBoundingRect().contains(pos):
+                return src_ix, pw
+        return None, None
+
+    def _values_at_display_x(self, src_ix, hover_x):
+        if src_ix >= len(self._buffers):
+            return None
+        buf = self._buffers[src_ix]
+        if buf._tvec.size == 0 or buf._data.size == 0:
+            return None
+        x_mod = buf._tvec % self.duration
+        idx = int(np.searchsorted(x_mod, hover_x))
+        if idx >= x_mod.size:
+            idx = x_mod.size - 1
+        elif idx > 0 and abs(x_mod[idx - 1] - hover_x) < abs(x_mod[idx] - hover_x):
+            idx = idx - 1
+        return buf._data[:, idx]
+
+    def _format_value_trace_html(self, src_ix, hover_x, values):
+        unit_suffix = self._trace_units.get(src_ix)
+        unit_str = (' ' + unit_suffix) if unit_suffix else ''
+        parts = [f"<span style='color:#CCC'>t={hover_x:.3f} s</span>"]
+        channel_meta = self._trace_channel_meta.get(src_ix, [])
+        for ch_ix, (name, color_hex) in enumerate(channel_meta):
+            if ch_ix >= values.size:
+                break
+            val = values[ch_ix]
+            val_str = '—' if not np.isfinite(val) else f'{val:g}{unit_str}'
+            parts.append(f"<span style='color:{color_hex}'>{name}: {val_str}</span>")
+        return '&nbsp;&nbsp;'.join(parts)
+
+    def _on_value_trace_mouse_moved(self, pos):
+        if not self.show_value_trace:
+            return
+        src_ix, pw = self._plot_under_cursor(pos)
+        if pw is None:
+            self._hide_value_trace()
+            return
+        hover_x = float(np.clip(pw.vb.mapSceneToView(pos).x(), 0.0, self.duration))
+        for trace_src_ix, vline in self._trace_vlines.items():
+            if trace_src_ix == src_ix:
+                vline.setPos(hover_x)
+                vline.setVisible(True)
+            else:
+                vline.setVisible(False)
+        values = self._values_at_display_x(src_ix, hover_x)
+        if values is None:
+            self._trace_label.hide()
+            return
+        trace_key = (src_ix, round(hover_x, 4))
+        if trace_key != self._trace_last_key:
+            self._trace_last_key = trace_key
+            self._trace_label.setText(self._format_value_trace_html(src_ix, hover_x, values))
+        self._trace_label.show()
 
     def sync_y_axes(self):
         # Get max width
@@ -346,6 +492,15 @@ class LinePG(RendererDataTimeSeries, PGRenderer):
     def ylabel_width(self, value):
         self._ylabel_width = value
         self.reset_renderer(reset_channel_labels=True)
+
+    @property
+    def show_value_trace(self):
+        return self._show_value_trace
+
+    @show_value_trace.setter
+    def show_value_trace(self, value):
+        self._show_value_trace = bool(value)
+        self.reset_renderer(reset_channel_labels=False)
 
     @RendererDataTimeSeries.auto_scale.setter
     def auto_scale(self, value):
