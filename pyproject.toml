@@ -49,6 +49,7 @@ dependencies = [
     "pyvistaqt>=0.11.3",
     "pyvista>=0.46.4",
     "phopymnehelper",
+    "phopylslhelper",
     "phopyqthelper",
     # "rerun-sdk==0.29.2; sys_platform != 'darwin'"
     # "dive",
@@ -81,8 +82,9 @@ exclude = ["icons*", "docs*", "dist*"]
 # Run 'python update_mne_path.py' to automatically set the correct path based on your directory structure
 # This avoids git conflicts when working across different directory layouts
 mne = { path = "../mne-python", editable = true }
-phopymnehelper = { path = "../PhoPyMNEHelper", editable = true }
-phopyqthelper = { path = "../phopyqthelper", editable = true }
+phopylslhelper = { git = "https://github.com/CommanderPho/phopylslhelper.git" }
+phopymnehelper = { git = "https://github.com/CommanderPho/PhoPyMNEHelper.git", rev = "develop" }
+phopyqthelper = { git = "https://github.com/CommanderPho/phopyqthelper.git" }
 # dive = { path = "../DIVE", editable = true }
 
 [dependency-groups]

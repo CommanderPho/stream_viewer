@@ -1,3 +1,4 @@
 [tool.uv.sources]
-phopymnehelper = { git = "https://github.com/CommanderPho/PhoPyMNEHelper.git" }
+phopylslhelper = { git = "https://github.com/CommanderPho/phopylslhelper.git" }
+phopymnehelper = { git = "https://github.com/CommanderPho/PhoPyMNEHelper.git", rev = "develop" }
 phopyqthelper = { git = "https://github.com/CommanderPho/phopyqthelper.git" }

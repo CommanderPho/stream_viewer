@@ -1,0 +1,4 @@
+[tool.uv.sources]
+phopylslhelper = { workspace = true }
+phopymnehelper = { workspace = true }
+phopyqthelper = { workspace = true }

@@ -151,3 +151,6 @@ templating/uv_deps_switcher/backups
 !.pixi/config.toml
 .qtcreator/project.json
 .qtcreator/project.json.user
+
+# uv-deps-switcher
+**/templating/uv_deps_switcher/backups

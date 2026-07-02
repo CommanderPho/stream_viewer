@@ -1,0 +1,4 @@
+[tool.uv.sources]
+phopylslhelper = { path = "{ACTIVE_DEV_PATH_PREFIX}/PhoPyLSLhelper", editable = true }
+phopymnehelper = { path = "{ACTIVE_DEV_PATH_PREFIX}/PhoPyMNEHelper", editable = true }
+phopyqthelper = { path = "{ACTIVE_DEV_PATH_PREFIX}/phopyqthelper", editable = true }

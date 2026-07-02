@@ -3185,8 +3185,8 @@ wheels = [
 
 [[package]]
 name = "phopylslhelper"
-version = "1.0.6"
-source = { editable = "../PhoPyLSLhelper" }
+version = "1.0.3"
+source = { git = "https://github.com/CommanderPho/phopylslhelper.git#735985a233a41f32187c8822471baa0e22d93410" }
 dependencies = [
     { name = "attrs" },
     { name = "pandas" },
@@ -3194,20 +3194,10 @@ dependencies = [
     { name = "pytz" },
 ]
 
-[package.metadata]
-requires-dist = [
-    { name = "attrs", specifier = ">=22.2.0,<23" },
-    { name = "opencv-python", marker = "extra == 'video'", specifier = ">=4.5.0" },
-    { name = "pandas", specifier = ">=1.5.3,<3.0.0" },
-    { name = "pylsl", specifier = ">=1.16.2" },
-    { name = "pytz", specifier = ">=2025.2" },
-]
-provides-extras = ["video"]
-
 [[package]]
 name = "phopymnehelper"
-version = "0.3.8"
-source = { editable = "../PhoPyMNEHelper" }
+version = "0.3.9"
+source = { git = "https://github.com/CommanderPho/PhoPyMNEHelper.git?rev=develop#2c7219383228108cb4dcf6407047bafe6f2849a6" }
 dependencies = [
     { name = "autoreject" },
     { name = "dill" },
@@ -3230,45 +3220,13 @@ dependencies = [
     { name = "xarray", version = "2026.2.0", source = { registry = "https://pypi.org/simple" }, extra = ["complete"], marker = "python_full_version >= '3.11'" },
 ]
 
-[package.metadata]
-requires-dist = [
-    { name = "autoreject", specifier = ">=0.4.3" },
-    { name = "dill", specifier = ">=0.3.5.1" },
-    { name = "gmsh", specifier = ">=4.15.0" },
-    { name = "h5py", specifier = ">=3.14.0" },
-    { name = "meshio", specifier = ">=5.3.5" },
-    { name = "mne", specifier = ">=1.8.0" },
-    { name = "numpy", specifier = "~=1.20" },
-    { name = "pandas", specifier = ">=1.5.3,<3.0.0" },
-    { name = "phopylslhelper", editable = "../PhoPyLSLhelper" },
-    { name = "polars", extras = ["all"], specifier = ">=1.39.3" },
-    { name = "pyedflib", specifier = ">=0.1.42" },
-    { name = "pyprep", specifier = ">=0.6.0" },
-    { name = "python-benedict", specifier = ">=0.28.3,<0.29" },
-    { name = "pyvistaqt", specifier = ">=0.11.3" },
-    { name = "pyxdf", specifier = ">=1.16.0" },
-    { name = "scikit-learn", specifier = ">=1.7.2" },
-    { name = "trame", specifier = ">=3.12.0" },
-    { name = "xarray", extras = ["complete"], specifier = ">=2024.3.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=8.0" }]
-exporters = [{ name = "pyairtable", specifier = ">=3.3.0" }]
-
 [[package]]
 name = "phopyqthelper"
 version = "0.1.0"
-source = { editable = "../phopyqthelper" }
+source = { git = "https://github.com/CommanderPho/phopyqthelper.git#839f5bc8f06252f9b58ce0dd551a471424f89b4a" }
 dependencies = [
     { name = "pyqt6" },
     { name = "qtpy" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "pyqt6", specifier = ">=6.7.1" },
-    { name = "qtpy", specifier = ">=2.0.0" },
 ]
 
 [[package]]
@@ -4759,6 +4717,7 @@ dependencies = [
     { name = "numpy" },
     { name = "packaging" },
     { name = "pandas" },
+    { name = "phopylslhelper" },
     { name = "phopymnehelper" },
     { name = "phopyqthelper" },
     { name = "pyaudio" },
@@ -4813,8 +4772,9 @@ requires-dist = [
     { name = "numpy" },
     { name = "packaging" },
     { name = "pandas" },
-    { name = "phopymnehelper", editable = "../PhoPyMNEHelper" },
-    { name = "phopyqthelper", editable = "../phopyqthelper" },
+    { name = "phopylslhelper", git = "https://github.com/CommanderPho/phopylslhelper.git" },
+    { name = "phopymnehelper", git = "https://github.com/CommanderPho/PhoPyMNEHelper.git?rev=develop" },
+    { name = "phopyqthelper", git = "https://github.com/CommanderPho/phopyqthelper.git" },
     { name = "pyaudio", specifier = ">=0.2.14" },
     { name = "pylsl", specifier = ">=1.16.2" },
     { name = "pyopengl" },
