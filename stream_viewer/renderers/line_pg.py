@@ -311,7 +311,7 @@ class LinePG(RendererDataTimeSeries, PGRenderer):
             if ch_ix >= values.size:
                 break
             val = values[ch_ix]
-            val_str = '—' if not np.isfinite(val) else f'{val:g}'
+            val_str = '—' if not np.isfinite(val) else f'{val:.3f}'
             parts.append(f"<span style='color:{color_hex}'>{name}: {val_str}</span>")
         return '&nbsp;&nbsp;'.join(parts)
 
