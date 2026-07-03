@@ -296,6 +296,10 @@ class RendererBufferData(RendererFormatData):
         self._plot_mode = plot_mode
         self._duration = duration
         self._auto_scale = auto_scale
+        self._static_scale_mode = "none"
+        self._static_mins = None
+        self._static_maxs = None
+        self._is_statically_scaled = False
         super().__init__(**kwargs)
 
     def reset_buffers(self):
@@ -332,64 +336,96 @@ class RendererBufferData(RendererFormatData):
                     _max = np.nanmax(_data) + np.zeros((_data.shape[0], 1), dtype=_data.dtype)
 
                 _range = _max - _min
+                
+                # if data is completely flat avoid div by 0 and set values to 0.5
                 b_valid_range = _range.flatten() > np.finfo(np.float32).eps
                 coef = np.zeros_like(_range)
                 coef[b_valid_range] = (1 - 0) / _range[b_valid_range]
+                
                 _data = _data - _min  # Don't use -=; we want a copy here.
                 np.multiply(_data, coef, out=_data)
                 _data[~b_valid_range] = 0.5
+                
                 data = (_data, data[1])
-                # np.add(dat, 0, out=dat)
+                self._is_statically_scaled = False
+            elif getattr(self, '_static_scale_mode', 'none') != 'none' and self._static_mins and len(self._static_mins) > src_ix and self._static_mins[src_ix] is not None and np.any(data[0]) and not np.any(data[1]):
+                _data = data[0]
+                _min = self._static_mins[src_ix]
+                _max = self._static_maxs[src_ix]
+                
+                # Check for channel count mismatch (user approved discarding if mismatched)
+                if _min.shape[0] == _data.shape[0]:
+                    _range = _max - _min
+                    b_valid_range = _range.flatten() > np.finfo(np.float32).eps
+                    coef = np.zeros_like(_range)
+                    coef[b_valid_range] = (1 - 0) / _range[b_valid_range]
+                    
+                    _data = _data - _min
+                    np.multiply(_data, coef, out=_data)
+                    _data[~b_valid_range] = 0.5
+                    
+                    data = (_data, data[1])
+                    self._is_statically_scaled = True
+                else:
+                    self._is_statically_scaled = False
+                    self._static_scale_mode = "none" # Discard
+            else:
+                self._is_statically_scaled = False
 
             collect_timestamps[src_ix] = tuple(timestamps)
             collect_data[src_ix] = tuple(data)
 
         return collect_data, collect_timestamps
 
+    @QtCore.Slot(str)
+    @QtCore.Slot(bool)
     @QtCore.Slot()
-    def auto_scale_once(self) -> None:
+    def auto_scale_once(self, mode: str = 'by-stream') -> None:
         """
         Perform a one-time autoscale of the renderer axis based on the
         current contents of the internal buffers.
 
-        This computes a global min/max across all buffered, visible
-        channels and updates ``lower_limit``/``upper_limit`` once,
-        without changing the continuous ``auto_scale`` mode or
-        modifying the buffered data.
+        This computes min/max values and stores them as static limits
+        which are then applied continuously on incoming data (if auto_scale is "None").
         """
         if not self._buffers:
             return
 
-        global_min = None
-        global_max = None
+        # Sometimes signal connections pass a boolean for checked state
+        if not isinstance(mode, str):
+            mode = 'by-stream'
+            
+        self._static_scale_mode = mode.lower()
+        self._static_mins = []
+        self._static_maxs = []
 
         for buf in self._buffers:
             data = getattr(buf, "_data", None)
             if data is None or not data.size:
+                self._static_mins.append(None)
+                self._static_maxs.append(None)
                 continue
 
             try:
-                _min = float(np.nanmin(data))
-                _max = float(np.nanmax(data))
+                if mode.lower() == 'by-channel':
+                    _min = np.nanmin(data, axis=1, keepdims=True)
+                    _max = np.nanmax(data, axis=1, keepdims=True)
+                else:  # 'by-stream'
+                    _min = np.nanmin(data) + np.zeros((data.shape[0], 1), dtype=data.dtype)
+                    _max = np.nanmax(data) + np.zeros((data.shape[0], 1), dtype=data.dtype)
             except ValueError:
-                # All-NaN slice or similar; skip this buffer.
+                self._static_mins.append(None)
+                self._static_maxs.append(None)
                 continue
 
-            if not np.isfinite(_min) or not np.isfinite(_max):
-                continue
+            # Ensure there's a valid range
+            _range = _max - _min
+            invalid = _range <= np.finfo(np.float32).eps
+            _min[invalid] = -0.5
+            _max[invalid] = 0.5
 
-            global_min = _min if global_min is None else min(global_min, _min)
-            global_max = _max if global_max is None else max(global_max, _max)
-
-        if global_min is None or global_max is None:
-            return
-
-        # Avoid degenerate ranges.
-        if global_max <= global_min + np.finfo(np.float32).eps:
-            return
-
-        self.lower_limit = global_min
-        self.upper_limit = global_max
+            self._static_mins.append(_min)
+            self._static_maxs.append(_max)
 
     @property
     def duration(self):
@@ -424,6 +460,10 @@ class RendererBufferData(RendererFormatData):
     @auto_scale.setter
     def auto_scale(self, value):
         self._auto_scale = value
+        
+    @property
+    def is_statically_scaled(self) -> bool:
+        return getattr(self, '_is_statically_scaled', False)
 
     @QtCore.Slot(str)
     def auto_scale_currentTextChanged(self, value):

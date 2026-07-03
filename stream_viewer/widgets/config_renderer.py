@@ -22,6 +22,12 @@ class ConfigAndRenderWidget(QtWidgets.QWidget):
             settings_widget = HidableCtrlWrapWidget(control_panel) if make_hidable else control_panel
             self.layout().addWidget(settings_widget)
 
+            if isinstance(settings_widget, HidableCtrlWrapWidget) and hasattr(renderer, 'auto_scale_once'):
+                settings_widget.btn_autoscale_channel.setVisible(True)
+                settings_widget.btn_autoscale_channel.clicked.connect(lambda _=False: renderer.auto_scale_once(mode='by-channel'))
+                settings_widget.btn_autoscale_stream.setVisible(True)
+                settings_widget.btn_autoscale_stream.clicked.connect(lambda _=False: renderer.auto_scale_once(mode='by-stream'))
+
         self.renderer = renderer
 
         # Right panel with stacked layout: placeholder + renderer widget

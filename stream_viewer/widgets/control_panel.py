@@ -36,8 +36,32 @@ class HidableCtrlWrapWidget(QtWidgets.QWidget):
         self._ctrl_panel = control_panel
         self._ctrl_panel.setVisible(self._vis_toggle)
 
+        # Autoscale buttons
+        self.btn_autoscale_channel = QtWidgets.QToolButton()
+        self.btn_autoscale_channel.setObjectName("AutoScale_Channel_ToolButton")
+        self.btn_autoscale_channel.setToolTip("Auto-scale Once By-Channel")
+        self.btn_autoscale_channel.setText("Ch")
+        self.btn_autoscale_channel.setVisible(False)
+        self.btn_autoscale_channel.setSizePolicy(QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Minimum)
+
+        self.btn_autoscale_stream = QtWidgets.QToolButton()
+        self.btn_autoscale_stream.setObjectName("AutoScale_Stream_ToolButton")
+        self.btn_autoscale_stream.setToolTip("Auto-scale Once By-Stream")
+        self.btn_autoscale_stream.setText("St")
+        self.btn_autoscale_stream.setVisible(False)
+        self.btn_autoscale_stream.setSizePolicy(QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Minimum)
+
+        try:
+            import qtawesome as qta
+            self.btn_autoscale_channel.setIcon(qta.icon('fa.align-justify', color='white'))
+            self.btn_autoscale_stream.setIcon(qta.icon('fa.arrows-v', color='white'))
+        except ImportError:
+            pass
+
         self.setLayout(QtWidgets.QVBoxLayout())
         self.layout().addWidget(showhide_pb)
+        self.layout().addWidget(self.btn_autoscale_channel)
+        self.layout().addWidget(self.btn_autoscale_stream)
         self.layout().addWidget(self._ctrl_panel)
 
     @QtCore.Slot(bool)

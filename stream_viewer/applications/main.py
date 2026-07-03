@@ -83,6 +83,7 @@ class LSLViewer(QtWidgets.QMainWindow):
         self._monitor_sources = {}
 
         self.setWindowTitle("Stream Viewer")
+        self.setDockNestingEnabled(True)
         home_dir = Path(QtCore.QStandardPaths.writableLocation(QtCore.QStandardPaths.HomeLocation))
         self._settings_path = home_dir / '.stream_viewer' / 'lsl_viewer.ini'
         if settings_path is not None:

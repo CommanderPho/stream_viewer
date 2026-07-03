@@ -379,7 +379,7 @@ class LinePG(RendererDataTimeSeries, PGRenderer):
                 per_chan_range = (-0.5, 0.5)  # channel range if data are auto-scaled.
 
                 offset_chans = self.offset_channels and dat.shape[0] > 1
-                if self.auto_scale != 'none':
+                if self.auto_scale != 'none' or getattr(self, 'is_statically_scaled', False):
                     # dat auto-scaled between (0, 1). Each channel is allocated (-0.5, 0.5)
                     dat -= 0.5
                 elif offset_chans:
