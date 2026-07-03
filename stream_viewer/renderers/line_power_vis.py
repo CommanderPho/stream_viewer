@@ -11,6 +11,7 @@ Reference: https://mne.tools/stable/auto_examples/time_frequency/time_frequency_
 """
 
 import json
+import time
 import numpy as np
 from scipy import signal
 from qtpy import QtGui
@@ -101,6 +102,9 @@ class LinePowerVis(RendererDataTimeSeries, PGRenderer):
         self._show_confidence = show_confidence
         self._line_width = line_width
         self._antialias = antialias
+        
+        self._initial_auto_scale_duration = 5.0
+        self._first_update_time = None
 
         # Set _auto_scale early to avoid race conditions during initialization
         self._auto_scale = auto_scale
@@ -141,6 +145,7 @@ class LinePowerVis(RendererDataTimeSeries, PGRenderer):
         self._last_srate = None
         self._y_ranges = {}  # Reset y-axis ranges
         self._range_update_counter = 0
+        self._first_update_time = None
 
         if len(self.chan_states) == 0 or len(self._data_sources) == 0:
             return
@@ -395,6 +400,12 @@ class LinePowerVis(RendererDataTimeSeries, PGRenderer):
         if len(self._plot_widgets) == 0:
             return
 
+        # Track initial update time for auto-scaling
+        if self._first_update_time is None:
+            self._first_update_time = time.time()
+            
+        is_initial_period = (time.time() - self._first_update_time) <= self._initial_auto_scale_duration
+
         # Aggregate data from all sources
         all_data = []
         srate = None
@@ -462,8 +473,9 @@ class LinePowerVis(RendererDataTimeSeries, PGRenderer):
                 self._ci_lower_curves[band_idx].setData(display_t, gfp - ci_low)
                 self._ci_upper_curves[band_idx].setData(display_t, gfp + ci_up)
             
-            # Update y-axis range when auto_scale is enabled (but only when range changes significantly)
-            if self.auto_scale != 'none' and band_idx < len(self._plot_widgets):
+            # Update y-axis range when auto_scale is enabled 
+            # To prevent constant flickering, we only auto-fit during the initial few seconds
+            if self.auto_scale != 'none' and band_idx < len(self._plot_widgets) and is_initial_period:
                 # Compute current data range
                 if np.isfinite(gfp).any():
                     data_min = float(np.nanmin(gfp))
@@ -480,24 +492,9 @@ class LinePowerVis(RendererDataTimeSeries, PGRenderer):
                         new_min = data_min - abs(data_min) * 0.1 if data_min != 0 else -1.0
                         new_max = data_max + abs(data_max) * 0.1 if data_max != 0 else 1.0
                     
-                    # Only update if range has changed significantly (more than 10% change)
-                    if band_idx in self._y_ranges:
-                        old_min, old_max = self._y_ranges[band_idx]
-                        old_range = old_max - old_min
-                        new_range = new_max - new_min
-                        
-                        # Check if min or max changed significantly
-                        min_change = abs(new_min - old_min) / max(abs(old_range), 1e-10)
-                        max_change = abs(new_max - old_max) / max(abs(old_range), 1e-10)
-                        
-                        if min_change > 0.1 or max_change > 0.1 or old_range == 0:
-                            # Significant change, update the range
-                            self._plot_widgets[band_idx].setYRange(new_min, new_max)
-                            self._y_ranges[band_idx] = (new_min, new_max)
-                    else:
-                        # First time, set the range
-                        self._plot_widgets[band_idx].setYRange(new_min, new_max)
-                        self._y_ranges[band_idx] = (new_min, new_max)
+                    # Continuously update during the initial period to catch the real signal
+                    self._plot_widgets[band_idx].setYRange(new_min, new_max)
+                    self._y_ranges[band_idx] = (new_min, new_max)
 
     # ------------------------------ #
     # Properties
