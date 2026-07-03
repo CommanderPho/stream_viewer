@@ -234,7 +234,7 @@ class LinePG(RendererDataTimeSeries, PGRenderer):
         self._setup_value_trace_overlay()
 
     def _apply_trace_label_font(self):
-        font = QtGui.QFont("Arial", int(self.font_size - 1))
+        font = QtGui.QFont("Arial", int(self.font_size - 2))
         self._trace_label.setFont(font)
 
     def _teardown_value_trace_overlay(self):
