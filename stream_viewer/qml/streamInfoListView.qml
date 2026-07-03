@@ -89,7 +89,7 @@ Rectangle {
                     OuterWidget.removed()
                 }
             }
-        ScrollIndicator.vertical: ScrollIndicator { }
+        ScrollBar.vertical: ScrollBar { }
 //        onCountChanged: console.warn('Model count has changed: ' + count)
 //        onCurrentItemChanged: console.warn(streamlist.currentIndex + ' selected')
     }

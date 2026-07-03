@@ -147,16 +147,13 @@ class LSLViewer(QtWidgets.QMainWindow):
         view_menu.addAction(self._console_act)
 
     def setup_status_panel(self):
-        dock = QtWidgets.QDockWidget()
+        dock = QtWidgets.QDockWidget("LSL Streams", self)
         dock.setObjectName("StatusPanel")
-        dock.setAllowedAreas(QtCore.Qt.LeftDockWidgetArea)
+        dock.setAllowedAreas(QtCore.Qt.AllDockWidgetAreas)
         dock.setMinimumWidth(300)
-        dock.setFeatures(QtWidgets.QDockWidget.DockWidgetMovable | QtWidgets.QDockWidget.DockWidgetClosable)
+        dock.setFeatures(QtWidgets.QDockWidget.DockWidgetMovable | QtWidgets.QDockWidget.DockWidgetClosable | QtWidgets.QDockWidget.DockWidgetFloatable)
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, dock)
         dock.setWidget(self.stream_status_widget)
-        dock.setFloating(False)
-        # Prevent the dock from floating by monitoring topLevelChanged signal
-        dock.topLevelChanged.connect(lambda floating: dock.setFloating(False) if floating else None)
 
     def setup_console_panel(self):
         """Set up the console output dock widget."""
@@ -217,15 +214,32 @@ class LSLViewer(QtWidgets.QMainWindow):
             settings.beginGroup("StreamStatus")
             status_dock = self.findChild(QtWidgets.QDockWidget, name="StatusPanel")
             if status_dock is not None:
-                # Always ensure the dock is docked (not floating)
-                status_dock.setFloating(False)
-                # Ensure it's in the left dock area
-                if self.dockWidgetArea(status_dock) != QtCore.Qt.LeftDockWidgetArea:
-                    self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, status_dock)
-                # Restore size if available (only when docked)
-                size = settings.value("size")
-                if size is not None:
-                    status_dock.resize(size)
+                # Restore dock area
+                dock_area = settings.value("dockWidgetArea")
+                if dock_area is not None:
+                    dock_area = int(dock_area)
+                else:
+                    dock_area = QtCore.Qt.LeftDockWidgetArea
+                
+                # Add dock if not already in the correct area
+                if self.dockWidgetArea(status_dock) != dock_area:
+                    self.addDockWidget(dock_area, status_dock)
+
+                # Restore floating state and geometry
+                is_floating = settings.value("floating", 'false') == 'true'
+                if is_floating:
+                    status_dock.setFloating(True)
+                    saved_size = settings.value("size")
+                    saved_pos = settings.value("pos")
+                    if saved_size is not None:
+                        status_dock.resize(saved_size)
+                    if saved_pos is not None:
+                        status_dock.move(saved_pos)
+                else:
+                    status_dock.setFloating(False)
+                    saved_size = settings.value("size")
+                    if saved_size is not None:
+                        status_dock.resize(saved_size)
         except Exception as exc:
             logger.warning("Failed to restore StreamStatus dock: %s", exc)
         finally:
@@ -440,12 +454,10 @@ class LSLViewer(QtWidgets.QMainWindow):
         status_dock = self.findChild(QtWidgets.QDockWidget, name="StatusPanel")
         if status_dock:
             settings.beginGroup("StreamStatus")
-            # Always save as left dock area and non-floating
-            settings.setValue("dockWidgetArea", QtCore.Qt.LeftDockWidgetArea)
-            # # https://doc.qt.io/qt-5/qt.html#DockWidgetArea-enum
+            settings.setValue("dockWidgetArea", self.dockWidgetArea(status_dock))
             settings.setValue("size", status_dock.size())
             settings.setValue("pos", status_dock.pos())
-            settings.setValue("floating", False)
+            settings.setValue("floating", status_dock.isFloating())
             settings.endGroup()
 
         # Save ConsoleOutput panel geometry.
