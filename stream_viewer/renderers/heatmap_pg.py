@@ -617,15 +617,17 @@ class HeatmapPG(RendererDataTimeSeries, PGRenderer):
                     # Use session range: show most recent duration window
                     session_start, session_end = state.session_time_range
                     current_time = session_end
-                    time_start = max(session_start, current_time - self.duration)
-                    time_width = min(self.duration, current_time - time_start)
+                    time_end = current_time
+                    time_start = time_end - self.duration
+                    time_width = self.duration
                 elif len(self._buffers) > 0:
                     # Fallback to buffer range
                     buf = self._buffers[0]
                     if buf._tvec.size > 0:
                         t_max = float(np.nanmax(buf._tvec))
                         if np.isfinite(t_max):
-                            time_start = max(0.0, t_max - self.duration)
+                            time_end = t_max
+                            time_start = time_end - self.duration
                             time_width = self.duration
                         else:
                             time_start = 0.0
@@ -1042,15 +1044,30 @@ class HeatmapPG(RendererDataTimeSeries, PGRenderer):
                 hmin = float(np.min(display[valid_mask]))
                 hmax = float(np.max(display[valid_mask]))
                 if np.isfinite(hmin) and np.isfinite(hmax) and (hmax > hmin):
-                    # Update global min (never increase) and max (never decrease)
-                    if self._global_min is None or hmin < self._global_min:
+                    # Use exponential smoothing (leaky integrator) for stable but adaptable limits
+                    alpha = 0.1  # Adaptation rate (0.0 to 1.0)
+                    
+                    if getattr(self, '_global_min', None) is None:
                         self._global_min = hmin
-                    if self._global_max is None or hmax > self._global_max:
+                    else:
+                        # Allow min to adapt back up slowly, but track new lows quickly
+                        if hmin < self._global_min:
+                            self._global_min = 0.5 * self._global_min + 0.5 * hmin
+                        else:
+                            self._global_min = (1.0 - alpha) * self._global_min + alpha * hmin
+                            
+                    if getattr(self, '_global_max', None) is None:
                         self._global_max = hmax
+                    else:
+                        # Allow max to adapt back down slowly, but track new highs quickly
+                        if hmax > self._global_max:
+                            self._global_max = 0.5 * self._global_max + 0.5 * hmax
+                        else:
+                            self._global_max = (1.0 - alpha) * self._global_max + alpha * hmax
         
         # When auto_scale is 'none', check if limits are in dB range
         # If limits are outside reasonable dB range (likely in raw power units), use global min/max
-        if self._auto_scale == 'none':
+        if self._auto_scale == 'none' and not getattr(self, 'is_statically_scaled', False):
             # Check if limits are in reasonable dB range (dB values are typically negative, < 0)
             # If limits are positive or very large, they're likely in raw power units, not dB
             limit_min = float(self.lower_limit)
@@ -1188,27 +1205,26 @@ class HeatmapPG(RendererDataTimeSeries, PGRenderer):
                         # Default to showing most recent duration window
                         if buf._tvec.size > 0:
                             current_time = float(np.nanmax(buf._tvec))
-                            time_start = max(session_start, current_time - self.duration)
-                            time_width = min(self.duration, current_time - time_start)
+                            time_end = current_time
+                            time_start = time_end - self.duration
                         else:
-                            time_start = session_start
-                            time_width = min(self.duration, session_end - session_start)
+                            time_end = session_end
+                            time_start = time_end - self.duration
                     else:
                         # No session range yet: use buffer range
                         if buf._tvec.size > 0:
-                            t_min = float(np.nanmin(buf._tvec))
                             t_max = float(np.nanmax(buf._tvec))
-                            if np.isfinite(t_min) and np.isfinite(t_max) and t_max > t_min:
-                                time_start = t_min
-                                time_width = t_max - t_min
+                            if np.isfinite(t_max):
+                                time_end = t_max
+                                time_start = time_end - self.duration
                             else:
                                 time_start = 0.0
-                                time_width = float(self.duration)
+                                time_end = time_start + self.duration
                         else:
                             time_start = 0.0
-                            time_width = float(self.duration)
+                            time_end = time_start + self.duration
                     
-                    target_xrange = (time_start, time_start + time_width)
+                    target_xrange = (time_start, time_end)
                     break
         
         # Update x-axis range early (before preparing displays) to ensure consistency
@@ -1309,11 +1325,23 @@ class HeatmapPG(RendererDataTimeSeries, PGRenderer):
                                         # Apply frequency mask
                                         P_use = Pxx[state.freq_mask, :]
 
+                                        is_first_update = state.last_processed_write_idx is None
+
                                         # Calculate new columns to add
                                         new_cols = self._calculate_new_columns(src_ix, buf)
                                         
-                                        # Update heatmap with new columns
-                                        if new_cols > 0:
+                                        if is_first_update:
+                                            if self.plot_mode == "Sweep":
+                                                n_cols = state.heatmap.shape[1]
+                                                cols_to_copy = min(P_use.shape[1], n_cols)
+                                                if cols_to_copy > 0:
+                                                    state.heatmap[:, :cols_to_copy] = P_use[:, -cols_to_copy:]
+                                                    state.write_index = cols_to_copy % n_cols
+                                            else:
+                                                state.heatmap = P_use.astype(np.float32).copy()
+                                                state.preallocated_capacity = state.heatmap.shape[1]
+                                                state.n_time_cols = state.heatmap.shape[1]
+                                        elif new_cols > 0:
                                             self._update_heatmap_columns(src_ix, P_use, new_cols)
                                         
                                         # Mark this write index/timestamp as processed
@@ -1344,18 +1372,20 @@ class HeatmapPG(RendererDataTimeSeries, PGRenderer):
                             session_start, session_end = state.session_time_range
                             if buf._tvec.size > 0:
                                 current_time = float(np.nanmax(buf._tvec))
-                                time_start = max(session_start, current_time - self.duration)
-                                time_width = min(self.duration, current_time - time_start)
+                                time_end = current_time
+                                time_start = time_end - self.duration
+                                time_width = self.duration
                             else:
-                                time_start = session_start
-                                time_width = min(self.duration, session_end - session_start)
+                                time_end = session_end
+                                time_start = time_end - self.duration
+                                time_width = self.duration
                         else:
                             if buf._tvec.size > 0:
-                                t_min = float(np.nanmin(buf._tvec))
                                 t_max = float(np.nanmax(buf._tvec))
-                                if np.isfinite(t_min) and np.isfinite(t_max) and t_max > t_min:
-                                    time_start = t_min
-                                    time_width = t_max - t_min
+                                if np.isfinite(t_max):
+                                    time_end = t_max
+                                    time_start = time_end - self.duration
+                                    time_width = self.duration
                                 else:
                                     time_start = 0.0
                                     time_width = float(self.duration)
